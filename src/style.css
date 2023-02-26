@@ -16,9 +16,15 @@ body {
   overflow: hidden;
 }
 
-body {
+* {
   margin: 0;
   padding: 0;
+  box-sizing: border-box;
+}
+
+ul,
+ol {
+  list-style-type: none;
 }
 
 #root {
@@ -60,11 +66,16 @@ button:focus-visible {
   position: relative;
 }
 
-.canvas-tools {
+#canvas-tools {
   position: absolute;
   top: 0;
   left: 0;
   padding: 1rem 0 0 1rem;
+  text-align: left;
+}
+
+#tools {
+  margin-bottom: 1rem;
 }
 
 @media (prefers-color-scheme: light) {

@@ -1,8 +1,8 @@
 export default class Input {
     #keys = new Map<string, boolean>();
     #lastKey: string | null = null;
-
-    constructor() {
+    static #instance: Input;
+    private constructor() {
         window.addEventListener("keydown", (e) => {
             this.#keys.set(e.code, true)
             this.#lastKey = e.code;
@@ -11,6 +11,13 @@ export default class Input {
         window.addEventListener("keyup", (e) => {
             this.#keys.delete(e.code)
         });
+    }
+
+    static instance() {
+        if (!Input.#instance) {
+            Input.#instance = new Input();
+        }
+        return Input.#instance;
     }
 
     getKey(key: string) {

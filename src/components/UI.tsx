@@ -1,8 +1,11 @@
-import { Component, createEffect, createSignal, onMount, Show } from 'solid-js'
+import { Accessor, Component, createEffect, createSignal, Match, onMount, Setter, Show, Switch } from 'solid-js'
 import { createStore } from 'solid-js/store'
-import Grid, { Grid_Node } from '../Grid'
+import Grid from '../Grid'
 import A_Star from '../A_star';
 import Input from '../Input';
+
+type Grid_Node = ReturnType<Grid['getNode']>;
+type KeyBindTypes = "KeyW" | 'KeyS' | "KeyE";
 
 const initializeCanvas = (render: () => void) => {
     let animationId: number;
@@ -26,13 +29,140 @@ const initializeCanvas = (render: () => void) => {
     return { start, stop, isRunning: runningSignal[0] }
 }
 
+function drawPath(ctx: CanvasRenderingContext2D, result: ReturnType<A_Star['find_path']>, sX: number, sY: number) {
+    if (result) {
+        ctx.fillStyle = 'lightgreen';
+
+        for (let i = 0; i < result.length; i++) {
+            const node = result[i];
+            ctx.fillRect(node.col * sX, node.row * sY, sX, sY)
+
+        }
+    }
+}
+function drawStartAndEnd(ctx: CanvasRenderingContext2D, { start_node, end_node }: { start_node: Grid_Node; end_node: Grid_Node; }, sX: number, sY: number) {
+
+    ctx.fillStyle = 'green';
+    ctx.fillRect(start_node.col * sX, start_node.row * sY, sX, sY)
+
+    ctx.fillStyle = 'red';
+    ctx.fillRect(end_node.col * sX, end_node.row * sY, sX, sY)
+}
+
+function drawKeyBind(ctx: CanvasRenderingContext2D, active_bind: KeyBindTypes, node: Grid_Node, sX: number, sY: number) {
+    switch (active_bind) {
+        case 'KeyW':
+            ctx.fillStyle = 'grey'
+            ctx.fillRect(node.col * sX, node.row * sY, sX, sY)
+
+            break;
+        case "KeyS":
+            ctx.fillStyle = 'green'
+            ctx.fillRect(node.col * sX, node.row * sY, sX, sY)
+
+            break;
+        case "KeyE":
+            ctx.fillStyle = 'red'
+            ctx.fillRect(node.col * sX, node.row * sY, sX, sY)
+            break;
+    }
+
+}
+
+function drawNodes(ctx: CanvasRenderingContext2D, nodes: Grid['nodes'], sX: number, sY: number) {
+    for (let i = 0; i < nodes.length; i++) {
+        const node = nodes[i]
+        ctx.beginPath();
+        ctx.rect(node.col * sX, node.row * sY, sX, sY)
+        if (!node.walkable) {
+            ctx.fillStyle = 'black'
+            ctx.fill()
+        }
+        ctx.stroke();
+        ctx.closePath();
+    }
+}
+
+const Commands: Component<{
+    // isRunning: Accessor<boolean>
+    text: string;
+    handleRunning: () => void;
+    findPath: () => void;
+
+}> = (props) => {
+    return <ul id='tools'>
+        <li>
+            <button type='button' textContent={props.text} onclick={(e) => {
+                e.preventDefault();
+                props.handleRunning();
+            }} />
+        </li>
+        <li>
+            <button type='button' onClick={(e) => {
+                e.preventDefault();
+                props.findPath();
+            }}>Find Path </button>
+        </li>
+
+    </ul>
+}
+
+const KeybindCommands: Component<{
+    active_bind: Accessor<KeyBindTypes | undefined>
+    set_active_bind: Setter<KeyBindTypes | undefined>
+}> = ({ active_bind, set_active_bind }) => {
+    const [collaped, setCollaped] = createSignal(false)
+    const toggle = () => setCollaped(!collaped())
+
+    return <Show when={!collaped()} fallback={
+        <button type='button' onClick={toggle}>Show Keybinds</button>
+    }>
+        <div id='keybinds'>
+            <button type='button' onClick={toggle}>Hide Keybinds</button>
+            <ul id='keybind-commands'>
+                <li>
+                    <button type='button' onClick={() => {
+                        set_active_bind('KeyW')
+                    }}>
+                        [Shift + W]: edit obstacles
+                    </button>
+                </li>
+                <li>
+                    <button type='button' onClick={() => {
+                        set_active_bind('KeyS')
+                    }}>[Shift + S]: edit start</button>
+                </li>
+                <li>
+                    <button type='button' onClick={() => {
+                        set_active_bind('KeyE')
+                    }}>[Shift + E]: edit end</button>
+                </li>
+
+                <Switch>
+                    <Match when={active_bind() === 'KeyW'}>
+                        <p>[W]: place/remove obstacles</p>
+                    </Match>
+                    <Match when={active_bind() === 'KeyS'}>
+                        <p>[S]: change start location</p>
+                    </Match>
+                    <Match when={active_bind() === 'KeyE'}>
+                        <p>[E]: change end location</p>
+                    </Match>
+                </Switch>
+            </ul>
+        </div>
+    </Show>
+
+    return
+}
+
+
 const UI: Component = () => {
+    let canvasRef!: HTMLCanvasElement;
+
     onMount(() => {
         setContext(canvasRef.getContext('2d')!)
     })
-
-    let canvasRef!: HTMLCanvasElement;
-    const [context, setContext] = createSignal<CanvasRenderingContext2D>()
 
     const [grid_details, set_grid_details] = createStore({
         columns: 10,
@@ -44,59 +174,62 @@ const UI: Component = () => {
 
     })
 
-    const input = new Input();
+    const grid = new Grid(grid_details.columns, grid_details.rows, grid_details.tilesizeX, grid_details.tilesizeY)
+    const input = Input.instance();
+    const a_star = new A_Star()
+
+    const [context, setContext] = createSignal<CanvasRenderingContext2D>()
+    const [result, setResult] = createSignal<ReturnType<A_Star['find_path']>>()
+    const [goal, setGoal] = createStore({
+        start_node: grid.first,
+        end_node: grid.last!
+    })
+
     const [mouse, setMouse] = createStore({
         x: 0,
         y: 0
     })
-    const grid = new Grid(grid_details.columns, grid_details.rows, grid_details.tilesizeX, grid_details.tilesizeY)
 
-    const [canMakeObstacle, setCanMakeObstacle] = createSignal(false)
+    const [active_bind, set_active_bind] = createSignal<KeyBindTypes>()
+    const keybinds = {
+        set(key: KeyBindTypes) {
+            if (active_bind() === key) {
+                set_active_bind();
+                return;
+            }
+            set_active_bind(key);
+        },
+        place() {
+            const activeBind = active_bind();
+            const node = grid.getNodeXY(mouse.x, mouse.y)
 
-    const makeObstacleKeyBind = () => setCanMakeObstacle(!canMakeObstacle());
-    const placeObstacle = () => {
-        const node = grid.getNodeXY(mouse.x, mouse.y)
-        node.walkable = !node.walkable
+            switch (activeBind) {
+                case 'KeyW':
+                    node.walkable = !node.walkable
+                    return;
+                case 'KeyS':
+                    setGoal('start_node', node)
+                    return;
+                case 'KeyE':
+                    setGoal('end_node', node)
+                    return
+                default:
+                    return;
+            }
+        },
+
+
     }
-    const [result, setResult] = createSignal<ReturnType<A_Star['find_path']>>()
-    const a_star = new A_Star()
     const { start, stop, isRunning } = initializeCanvas(() => {
         const ctx = context()!
+        const activeBind = active_bind()
+
         ctx.clearRect(0, 0, canvasRef.width, canvasRef.height)
-        for (let i = 0; i < grid.nodes.length; i++) {
-            const node = grid.nodes[i]
-            ctx.beginPath();
-            ctx.rect(node.col * grid_details.tilesizeX, node.row * grid_details.tilesizeY, grid_details.tilesizeX, grid_details.tilesizeY)
-            if (!node.walkable) {
-                ctx.fillStyle = 'black'
-                ctx.fill()
-            }
-            ctx.stroke();
-            ctx.closePath();
-        }
-        if (result()) {
-            ctx.fillStyle = 'lightgreen';
 
-            const path = result() as Grid_Node[];
-            for (let i = 0; i < path.length; i++) {
-                const node = path[i];
-                ctx.fillRect(node.col * grid_details.tilesizeX, node.row * grid_details.tilesizeY, grid_details.tilesizeX, grid_details.tilesizeY)
-
-            }
-        }
-        const first = grid.first;
-        const last = grid.last!;
-        ctx.fillStyle = 'green';
-        ctx.fillRect(first.col * grid_details.tilesizeX, first.row * grid_details.tilesizeY, grid_details.tilesizeX, grid_details.tilesizeY)
-        ctx.fillStyle = 'red';
-        ctx.fillRect(last.col * grid_details.tilesizeX, last.row * grid_details.tilesizeY, grid_details.tilesizeX, grid_details.tilesizeY)
-
-        if (canMakeObstacle()) {
-            const node = grid.getNodeXY(mouse.x, mouse.y)
-            ctx.fillStyle = 'grey'
-            ctx.fillRect(node.col * grid_details.tilesizeX, node.row * grid_details.tilesizeY, grid_details.tilesizeX, grid_details.tilesizeY)
-
-        }
+        drawPath(ctx, result()!, grid_details.tilesizeX, grid_details.tilesizeY)
+        drawStartAndEnd(ctx, goal, grid_details.tilesizeX, grid_details.tilesizeY)
+        if (activeBind) drawKeyBind(ctx, activeBind, grid.getNodeXY(mouse.x, mouse.y), grid_details.tilesizeX, grid_details.tilesizeY)
+        drawNodes(ctx, grid.nodes, grid_details.tilesizeX, grid_details.tilesizeY)
     })
 
     window.addEventListener('resize', (e) => {
@@ -116,26 +249,27 @@ const UI: Component = () => {
 
     })
 
-    window.addEventListener('mousedown', (e) => {
-        e.preventDefault();
-        if (isRunning() && canMakeObstacle()) {
-            placeObstacle();
-        }
-    })
-
     window.addEventListener('keydown', (e) => {
-
-
-        if (e.shiftKey) {
+        if (!e.shiftKey) {
+            if (e.code === 'KeyW' || e.code === 'KeyE' || e.code === 'KeyS') {
+                keybinds.place()
+            }
+            return;
+        } else {
             if (input.getKey('KeyW')) {
-                makeObstacleKeyBind();
+                keybinds.set('KeyW');
                 return;
             }
-        } else {
-            if (canMakeObstacle() && e.code === 'KeyW') {
-                placeObstacle()
+            if (input.getKey('KeyS')) {
+                keybinds.set('KeyS');
+                return;
+            }
+            if (input.getKey('KeyE')) {
+                keybinds.set('KeyE');
+                return;
             }
         }
+
     })
 
     createEffect(() => {
@@ -151,28 +285,13 @@ const UI: Component = () => {
 
     return <div class='canvas-container'>
         <canvas ref={canvasRef} />
-        <div class='canvas-tools'>
-            <button type='button' textContent={isRunning() ? 'Stop' : 'Start'} onclick={(e) => {
-                e.preventDefault();
-                isRunning() ? stop() : start();
-            }} />
-
-
-            <button type='button' onClick={(e) => {
-                e.preventDefault();
-                setResult(a_star.find_path(grid.first, grid.last!));
-
-            }}>Find Path</button>
-            <div>
-                <p>Keybinds</p>
-                <p>[Shift + W]: edit obstacles</p>
-                <Show when={canMakeObstacle()}>
-                    <p>[W]: place/remove obstacles</p>
-                </Show>
-            </div>
-
-
-
+        <div id='canvas-tools'>
+            <Commands
+                text={isRunning() ? 'Stop' : 'Start'}
+                handleRunning={() => isRunning() ? stop() : start()}
+                findPath={() => setResult(a_star.find_path(goal.start_node, goal.end_node))}
+            />
+            <KeybindCommands active_bind={active_bind} set_active_bind={set_active_bind} />
         </div>
     </div>
 }
