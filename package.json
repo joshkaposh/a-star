@@ -1,0 +1,20 @@
+{
+  "name": "solid-ts-vite",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc && vite build",
+    "preview": "vite preview"
+  },
+  "devDependencies": {
+    "babel-preset-solid": "^1.6.10",
+    "typescript": "^4.9.3",
+    "vite": "^4.1.0",
+    "vite-plugin-solid": "^2.5.0"
+  },
+  "dependencies": {
+    "solid-js": "^1.6.11"
+  }
+}
